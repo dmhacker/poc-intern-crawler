@@ -1,6 +1,7 @@
-# internship-scraper
+# scraper
 
-Still a work-in-progress. This is intended to be a proof-of-concept only.
+Still a work-in-progress. This is currently intended to be mainly for proof-of-concept.
+Only internships per company can be scraped at the moment. 
 
 ## Setup
 
