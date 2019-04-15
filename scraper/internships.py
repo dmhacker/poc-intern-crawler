@@ -35,6 +35,7 @@ def normalize_link(link, parent=None, parent_base=None):
 def scrape_company(company, max_depth=MAX_DEPTH,
                    max_entry_links=MAX_ENTRY_LINKS,
                    max_total_links=MAX_TOTAL_LINKS):
+    # Open up Selenium web browser
     options = webdriver.ChromeOptions()
     options.add_argument('headless')
     options.add_argument('--incognito')
@@ -43,18 +44,16 @@ def scrape_company(company, max_depth=MAX_DEPTH,
                          'Chrome/70.0.3538.77 Safari/537.36')
     driver = webdriver.Chrome(options=options)
 
-    # At least one of these must be present in each link we visit
-    # for that link to be considered explorable
-    necessary_keywords = ['job', 'career', 'intern']
-
-    # Find the company website, all entry links should come from here
+    # Find company website, abbreviation
     for url in search(company + ' careers website', stop=1):
         company_website = urlparse(url).netloc
+    company_abbrev = company.lower().replace(' ', '').replace('.', '')
 
     print('Company is {0}.'.format(company))
     print('Company careers website is {0}.'.format(company_website))
 
-    # PQ contains the initial links we obtained from the Google search
+    # Intially, frontier is populated a Google search
+    # These links must originate at the company website found earlier
     frontier = PriorityQueue()
     visited = set()
     search_term = company + ' internship apply'
@@ -63,21 +62,58 @@ def scrape_company(company, max_depth=MAX_DEPTH,
             continue
         entry_link = normalize_link(entry_link)
         heuristic = score_link_heuristic(entry_link, company)
-        frontier.put((heuristic, (entry_link, 1)))
+        frontier.put((-heuristic, (entry_link, 1)))
         visited.add(entry_link)
 
-    results = []
+    # This method allows us to vet & add child links to the frontier
+    def explore_child_links(links):
+        for link in links:
+            # Filter out obviously bad links
+            if not link or len(link) <= 2 or link[0] == '#' or \
+                    'javascript:void' in link or link.startswith('mailto'):
+                continue
 
-    idx = 0
-    while frontier and idx < max_total_links:
+            # Fix relative links, trim trailing slashes, etc
+            link = normalize_link(link, parent=current,
+                                  parent_base=current_base)
+
+            # Links must either be tied to the company or
+            # an external job application website
+            domain = urlparse(link).netloc
+            if domain != company_website and \
+                    company_abbrev not in domain and \
+                    'taleo' not in domain and \
+                    'workday' not in domain and \
+                    'greenhouse' not in domain and \
+                    'jobvite' not in domain and \
+                    'icims' not in domain:
+                continue
+
+            # PDF or image links should not be followed
+            if link.endswith('.pdf') or link.endswith('.jpg') or \
+                    link.endswith('.jpg'):
+                continue
+
+            # Skip links that have already been added to the frontier
+            if link in visited:
+                continue
+
+            heuristic = score_link_heuristic(link, company_abbrev)
+            frontier.put((-heuristic, (link, depth + 1)))
+            visited.add(link)
+
+    results = []
+    link_idx = 0
+
+    while frontier and link_idx < max_total_links:
         # Extract current link we are on and the link's root (excludes path)
-        score, (current, depth) = frontier.get()
+        neg_heuristic, (current, depth) = frontier.get()
         current_parse = urlparse(current)
         current_loc = current_parse.netloc
         current_base = current_parse.scheme + '://' + current_loc
 
         # TODO: Convert from printing to logging
-        print('{0} (depth={1}, lh={2})'.format(current, depth, score))
+        print('{0} (depth={1}, lh={2})'.format(current, depth, -neg_heuristic))
 
         # Use Selenium to fetch our page, wait a bit for the page to load
         driver.get(current)
@@ -88,12 +124,14 @@ def scrape_company(company, max_depth=MAX_DEPTH,
         # any HTML parsing by doing some primitive checks
         lcontent = content.lower()
         explorable = False
-        for keyword in necessary_keywords:
+        for keyword in ['job', 'career', 'intern']:
             if keyword in lcontent:
                 explorable = True
                 break
         if not explorable:
             continue
+
+        link_idx += 1
 
         # Parse HTML using BS4, discard links in header and footer
         soup = BeautifulSoup(content, 'lxml')
@@ -103,59 +141,41 @@ def scrape_company(company, max_depth=MAX_DEPTH,
             soup.footer.decompose()
 
         # Assign score to page based off of BS4 parse
-        company_short = company.lower() \
-            .replace(' ', '').replace('.', '')
-        page_score = score_page(soup, company_short)
+        page_score = score_page(soup, company_abbrev)
+        iframes = driver.find_elements_by_tag_name('iframe')
+        for iframe in iframes:
+            driver.switch_to.frame(iframe)
+            isoup = BeautifulSoup(driver.page_source, 'lxml')
+            if isoup.header:
+                isoup.header.decompose()
+            if isoup.footer:
+                isoup.footer.decompose()
+            page_score = max(page_score, score_page(isoup, company_abbrev))
+        driver.switch_to.default_content()
         if page_score > 0:
             results.append((current, page_score))
 
-        idx += 1
-
         # Child exploration cannot exceed the given maximum depth
         if depth < max_depth:
-            # Collect links from both iframes and anchor tags
-            links = []
-            for anchor in soup.find_all('a', href=True):
-                links.append(anchor.get('href'))
-            for iframe in soup.find_all('iframe', src=True):
-                links.append(iframe.get('src'))
+            # Collect links from anchor tags
+            explore_child_links([a.get('href') for a in
+                                 soup.find_all('a', href=True)])
 
-            for link in links:
-                # Filter out obviously bad links
-                if not link or len(link) <= 2 or link[0] == '#' or \
-                        'javascript:void' in link or link.startswith('mailto'):
-                    continue
+            # Collect links from each iframe separately
+            for iframe in iframes:
+                driver.switch_to.frame(iframe)
+                isoup = BeautifulSoup(driver.page_source, 'lxml')
+                if isoup.header:
+                    isoup.header.decompose()
+                if isoup.footer:
+                    isoup.footer.decompose()
+                explore_child_links([a.get('href') for a in
+                                     isoup.find_all('a', href=True)])
 
-                # Fix relative links, trim trailing slashes, etc
-                link = normalize_link(link, parent=current,
-                                      parent_base=current_base)
-
-                # Links must either be tied to the company or
-                # an external job application website
-                domain = urlparse(link).netloc
-                if domain != company_website and \
-                        company_short not in domain and \
-                        'taleo' not in domain and \
-                        'workday' not in domain and \
-                        'greenhouse' not in domain and \
-                        'jobvite' not in domain and \
-                        'icims' not in domain:
-                    continue
-
-                # PDF or image links should not be followed
-                if link.endswith('.pdf') or link.endswith('.jpg') or \
-                        link.endswith('.jpg'):
-                    continue
-
-                # Skip links that have already been added to the frontier
-                if link in visited:
-                    continue
-
-                heuristic = score_link_heuristic(link, company_short)
-                frontier.put((heuristic, (link, depth + 1)))
-                visited.add(link)
+    # Close the browser instance that Selenium opened
     driver.close()
 
+    # Find all result links that have the maximum score
     max_score = max([score for _, score in results])
     return [link for link, score in results if score == max_score]
 
