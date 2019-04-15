@@ -113,7 +113,8 @@ def scrape_company(company, max_depth=MAX_DEPTH,
         current_base = current_parse.scheme + '://' + current_loc
 
         # TODO: Convert from printing to logging
-        print('{0} (depth={1}, lh={2})'.format(current, depth, -neg_heuristic))
+        print('Visiting ... {0} (depth={1}, lh={2})'
+              .format(current, depth, -neg_heuristic))
 
         # Use Selenium to fetch our page, wait a bit for the page to load
         driver.get(current)
@@ -176,8 +177,12 @@ def scrape_company(company, max_depth=MAX_DEPTH,
     driver.close()
 
     # Find all result links that have the maximum score
-    max_score = max([score for _, score in results])
-    return [link for link, score in results if score == max_score]
+    if results:
+        max_score = max([score for _, score in results])
+        max_links = [link for link, score in results if score == max_score]
+        return (max_links, max_score)
+    else:
+        return ([], 0)
 
 
 if __name__ == '__main__':
@@ -187,7 +192,9 @@ if __name__ == '__main__':
                         help='the target company')
 
     args = parser.parse_args()
-    results = scrape_company(args.company)
+    results, result_score = scrape_company(args.company)
 
-    print('Results:')
+    print('\nResults:')
     print(results)
+    print('Max result score:')
+    print(result_score)
