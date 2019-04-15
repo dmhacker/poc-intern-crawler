@@ -1,5 +1,5 @@
 from googlesearch import search
-from scorer import score_link_heuristic
+from scorer import score_link_heuristic, score_page
 
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -12,6 +12,7 @@ import time
 
 MAX_DEPTH = 4
 MAX_ENTRY_LINKS = 5
+MAX_TOTAL_LINKS = 20
 
 
 def normalize_link(link, parent=None, parent_base=None):
@@ -31,7 +32,9 @@ def normalize_link(link, parent=None, parent_base=None):
     return link.strip()
 
 
-def scrape_company(company, max_depth=MAX_DEPTH):
+def scrape_company(company, max_depth=MAX_DEPTH,
+                   max_entry_links=MAX_ENTRY_LINKS,
+                   max_total_links=MAX_TOTAL_LINKS):
     options = webdriver.ChromeOptions()
     options.add_argument('headless')
     options.add_argument('--incognito')
@@ -52,7 +55,7 @@ def scrape_company(company, max_depth=MAX_DEPTH):
     frontier = PriorityQueue()
     visited = set()
     search_term = company + ' internship apply'
-    for entry_link in search(search_term, stop=MAX_ENTRY_LINKS):
+    for entry_link in search(search_term, stop=max_entry_links):
         if urlparse(entry_link).netloc != company_website:
             continue
         entry_link = normalize_link(entry_link)
@@ -62,7 +65,8 @@ def scrape_company(company, max_depth=MAX_DEPTH):
 
     results = []
 
-    while frontier:
+    idx = 0
+    while frontier and idx < max_total_links:
         # Extract current link we are on and the link's root (excludes path)
         score, (current, depth) = frontier.get()
         current_parse = urlparse(current)
@@ -70,7 +74,7 @@ def scrape_company(company, max_depth=MAX_DEPTH):
         current_base = current_parse.scheme + '://' + current_loc
 
         # TODO: Convert from printing to logging
-        print(current, depth, score)
+        print('{0} (depth={1}, lh={2})'.format(current, depth, score))
 
         # Use Selenium to fetch our page, wait a bit for the page to load
         driver.get(current)
@@ -89,13 +93,18 @@ def scrape_company(company, max_depth=MAX_DEPTH):
             continue
 
         # Parse HTML using BS4, discard links in header and footer
-        soup = BeautifulSoup(content, 'html.parser')
+        soup = BeautifulSoup(content, 'lxml')
         if soup.header:
             soup.header.decompose()
         if soup.footer:
             soup.footer.decompose()
 
-        # TODO: Assign score to page based off of BS4 parse
+        # Assign score to page based off of BS4 parse
+        page_score = score_page(soup)
+        if page_score > 0:
+            results.append((current, page_score))
+
+        idx += 1
 
         # Child exploration cannot exceed the given maximum depth
         if depth < max_depth:
@@ -144,7 +153,8 @@ def scrape_company(company, max_depth=MAX_DEPTH):
                 visited.add(link)
     driver.close()
 
-    return results
+    max_score = max([score for _, score in results])
+    return [link for link, score in results if score == max_score]
 
 
 if __name__ == '__main__':
