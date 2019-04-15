@@ -1,7 +1,7 @@
 import re
 
 
-def score_link_heuristic(link, company):
+def score_link_heuristic(link, company_short):
     tags = [
         ('intern', -10), ('career', -3), ('job', -2),
         ('student', -0.5), ('university', -0.5),
@@ -18,7 +18,7 @@ def score_link_heuristic(link, company):
     return score
 
 
-def score_page(soup):
+def score_page(soup, company_short):
     score = 0
 
     portals = []
@@ -33,8 +33,11 @@ def score_page(soup):
     for header_type in range(1, 7):
         header = soup.find('h{0}'.format(header_type))
         if header:
-            bonus = 6 - header_type
             txt = header.text.lower()
+            if company_short in txt:
+                continue
+            print(txt)
+            bonus = 6 - header_type
             if 'intern' in txt:
                 score += 17 + bonus / 2
             if 'software' in txt and 'engineer' in txt:

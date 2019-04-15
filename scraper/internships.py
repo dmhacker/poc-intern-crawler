@@ -38,6 +38,9 @@ def scrape_company(company, max_depth=MAX_DEPTH,
     options = webdriver.ChromeOptions()
     options.add_argument('headless')
     options.add_argument('--incognito')
+    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64 '
+                         'AppleWebKit/537.36 (KHTML, like Gecko) '
+                         'Chrome/70.0.3538.77 Safari/537.36')
     driver = webdriver.Chrome(options=options)
 
     # At least one of these must be present in each link we visit
@@ -100,7 +103,9 @@ def scrape_company(company, max_depth=MAX_DEPTH,
             soup.footer.decompose()
 
         # Assign score to page based off of BS4 parse
-        page_score = score_page(soup)
+        company_short = company.lower() \
+            .replace(' ', '').replace('.', '')
+        page_score = score_page(soup, company_short)
         if page_score > 0:
             results.append((current, page_score))
 
@@ -128,8 +133,6 @@ def scrape_company(company, max_depth=MAX_DEPTH,
                 # Links must either be tied to the company or
                 # an external job application website
                 domain = urlparse(link).netloc
-                company_short = company.lower() \
-                    .replace(' ', '').replace('.', '')
                 if domain != company_website and \
                         company_short not in domain and \
                         'taleo' not in domain and \
@@ -148,7 +151,7 @@ def scrape_company(company, max_depth=MAX_DEPTH,
                 if link in visited:
                     continue
 
-                heuristic = score_link_heuristic(link, company)
+                heuristic = score_link_heuristic(link, company_short)
                 frontier.put((heuristic, (link, depth + 1)))
                 visited.add(link)
     driver.close()
