@@ -9,5 +9,5 @@ Install everything in `requirements.txt`.
 
 ## Usage
 
-To run, use `python internscraper/scraper.py [COMPANY]`. 
+To run, use `python scraper/internships.py [COMPANY]`. 
 Replace [COMPANY] with the actual name of the company you want to scrape.
