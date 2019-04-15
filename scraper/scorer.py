@@ -36,7 +36,6 @@ def score_page(soup, company_short):
             txt = header.text.lower()
             if company_short in txt:
                 continue
-            print(txt)
             bonus = 6 - header_type
             if 'intern' in txt:
                 score += 17 + bonus / 2
