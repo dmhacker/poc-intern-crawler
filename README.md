@@ -8,4 +8,4 @@ Install everything in `requirements.txt`.
 
 To run, use `python crawler/internships.py ${COMPANY}`. 
 
-<sub>Replace ${COMPANY} with the name of the company you gather links for.</sub>
+<sub>Replace ${COMPANY} with the name of the company you want to gather links for.</sub>
